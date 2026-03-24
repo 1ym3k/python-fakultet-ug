@@ -11,6 +11,7 @@ class UserProfile(models.Model):
 
     def __str__(self):
         return f"{self.user.username} - {self.balance} pkt"
+    
     def clean(self):
         if self.balance < 0:
             raise ValidationError({'balance': 'Saldo nie może być ujemne.'})
@@ -19,7 +20,7 @@ class UserProfile(models.Model):
         self.full_clean()                    # uruchamia wszystkie walidacje
         super().save(*args, **kwargs)
 
-# 2. Model kategorii (np. Sport, Wybory, Krypto)
+# 2. Model kategorii
 class Category(models.Model):
     name = models.CharField(max_length=100, unique=True)
     description = models.TextField(blank=True)
@@ -27,39 +28,53 @@ class Category(models.Model):
     def __str__(self):
         return self.name
 
-# 3. Model wydarzenia (np. Finał Ligi Mistrzów)
+# 3. Model wydarzenia
 class Event(models.Model):
     title = models.CharField(max_length=200)
     category = models.ForeignKey(Category, on_delete=models.CASCADE, related_name='events')
     description = models.TextField()
-    is_active = models.BooleanField(default=True) # Czy można jeszcze obstawiać?
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
-    end_date = models.DateTimeField() # Kiedy wydarzenie się kończy
+    end_date = models.DateTimeField()
 
     def __str__(self):
         return self.title
     
     def save(self, *args, **kwargs):
-        self.full_clean()                    # uruchamia wszystkie walidacje
+        self.full_clean()
         super().save(*args, **kwargs)
 
-# 4. Model opcji zakładu (np. Wygra Real, Remis, Wygra Barca)
+# 4. Model opcji zakładu
 class Option(models.Model):
     event = models.ForeignKey(Event, on_delete=models.CASCADE, related_name='options')
     name = models.CharField(max_length=100)
-    odds = models.DecimalField(max_digits=5, decimal_places=2, default=1.00) # Kurs (np. 1.50, 2.10)
+    initial_liquidity = models.DecimalField(max_digits=10, decimal_places=2, default=100.00)
 
     def __str__(self):
         return f"{self.name} (Kurs: {self.odds}) - {self.event.title}"
 
-    def clean(self):
-        # Sprawdzenie, czy suma prawdopodobieństw (1/odds) nie jest mocno przekroczona
-        if self.odds < 1.01:
-            raise ValidationError({'odds': 'Kurs musi być większy lub równy 1.01.'})
+    @property
+    def option_pool(self):
+        # Prawdziwe zakłady graczy + wirtualna płynność z panelu admina
+        from django.db.models import Sum
+        from decimal import Decimal
+        real_bets = self.bets.aggregate(total=Sum('amount'))['total'] or Decimal('0.00')
+        return self.initial_liquidity + real_bets
+
+    @property
+    def odds(self):
+        #Całkowita pula wydarzenia / pula na tę opcję
+        event_pool = sum(opt.option_pool for opt in self.event.options.all())
+        return round(event_pool / self.option_pool, 2)
+
+    @property
+    def percentage(self):
+        event_pool = sum(opt.option_pool for opt in self.event.options.all())
+        return round((self.option_pool / event_pool) * 100, 1)
     
-    def save(self, *args, **kwargs):
-        self.full_clean()                    # uruchamia wszystkie walidacje
-        super().save(*args, **kwargs)
+    @property
+    def percentage_int(self):
+        return int(self.percentage)
         
 # 5. Model konkretnego zakładu postawionego przez użytkownika
 class Bet(models.Model):
@@ -78,22 +93,19 @@ class Bet(models.Model):
         return f"Zakład {self.user.username} na {self.option.name} za {self.amount}"
 
     def clean(self):
-        # 1. Sprawdzenie czy wydarzenie jest jeszcze aktywne
         if not self.option.event.is_active:
             raise ValidationError({'option': 'Nie można obstawiać nieaktywnego wydarzenia.'})
 
-        # 2. Data obstawiania musi być przed końcem wydarzenia
         if self.option.event.end_date <= timezone.now():
             raise ValidationError({'option': 'Wydarzenie już się zakończyło – nie można obstawiać.'})
 
-        # 3. Użytkownik musi mieć wystarczające saldo
         try:
             profile = self.user.profile
             if self.amount > profile.balance:
                 raise ValidationError({'amount': f'Nie masz wystarczającego salda. Masz tylko {profile.balance}.'})
-        except UserProfile.DoesNotExist:
+        except AttributeError:
             raise ValidationError({'user': 'Użytkownik nie ma profilu.'})
     
     def save(self, *args, **kwargs):
-        self.full_clean()                    # uruchamia wszystkie walidacje
+        self.full_clean()
         super().save(*args, **kwargs)
