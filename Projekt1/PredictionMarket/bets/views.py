@@ -14,7 +14,7 @@ import json
 from django.views.decorators.csrf import csrf_exempt
 import traceback
 
-genai.configure(api_key="AIzaSyBm_h__6iKH8reuZrBgwaTQ-AisVHDNNiA")
+genai.configure(api_key="AIzaSyDKBxf5hyGGXcNLe3AmEjlXH-dsNkMWQ18")
 model = genai.GenerativeModel('gemini-2.5-flash')
 
 def index(request):

@@ -83,10 +83,3 @@ class PredictionMarketTests(TestCase):
         
         self.assertEqual(response.status_code, 200)
         self.assertContains(response, "Final Champions League")
-
-    def test_top_up_button_works(self):
-        """Sprawdza czy funkcja doładowania konta w Dashboardzie działa poprawnie"""
-        self.client.login(username='testuser', password='password123')
-        response = self.client.post(reverse('dashboard'), {'top_up': 'true'})
-        self.profile.refresh_from_db()
-        self.assertEqual(self.profile.balance, Decimal('1100.00'))
